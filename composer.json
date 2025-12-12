@@ -1,0 +1,13 @@
+{
+  "require": {
+    "slim/slim": "^4.14",
+    "slim/psr7": "^1.6",
+    "vlucas/phpdotenv": "^5.5",
+    "firebase/php-jwt": "^6.10"
+  },
+  "autoload": {
+    "psr-4": {
+      "UnidetApi\\": "src/"
+    }
+  }
+}
