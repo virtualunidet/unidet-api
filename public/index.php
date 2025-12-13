@@ -13,30 +13,40 @@ require __DIR__ . '/../vendor/autoload.php';
  * .env (solo local)
  * ========================= */
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->safeLoad(); // no truena si no existe
+$dotenv->safeLoad(); // No revienta si no existe .env
 
 /* =========================
  * Slim
  * ========================= */
 $app = AppFactory::create();
+$app->addRoutingMiddleware();
 
 /**
- * BASE_PATH:
- * - Local XAMPP: /unidet-api/public (si lo usas así)
- * - Azure con php -S: DEBE SER vacío
+ * BASE_PATH
+ * - Local XAMPP: /unidet-api/public
+ * - Azure: sin rewrite -> usa /index.php
  */
-$basePath = (string)($_ENV['BASE_PATH'] ?? getenv('BASE_PATH') ?? '');
-$basePath = trim($basePath);
-if ($basePath === '/') { $basePath = ''; }
-$basePath = rtrim($basePath, '/');
+$isAzure = getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME');
 
-if ($basePath !== '') {
-    $app->setBasePath($basePath);
+if ($isAzure) {
+    // Azure (sin rewrite): las rutas entran como /index.php/...
+    $app->setBasePath('/index.php');
+} else {
+    // Local: puedes usar BASE_PATH si lo ocupas
+    $basePath = (string)($_ENV['BASE_PATH'] ?? getenv('BASE_PATH') ?? '');
+    $basePath = trim($basePath);
+    $basePath = rtrim($basePath, '/'); // "/" -> ""
+
+    if ($basePath !== '') {
+        $app->setBasePath($basePath);
+    }
 }
 
 $app->addBodyParsingMiddleware();
-$app->addRoutingMiddleware();
 
+/* =========================
+ * Errors
+ * ========================= */
 $appDebugRaw = (string)($_ENV['APP_DEBUG'] ?? getenv('APP_DEBUG') ?? 'false');
 $appDebug = in_array(strtolower($appDebugRaw), ['1','true','yes','on'], true);
 $app->addErrorMiddleware($appDebug, true, true);
@@ -51,6 +61,7 @@ $app->options('/{routes:.+}', function (Request $request, Response $response) {
 });
 
 $app->add(function (Request $request, RequestHandler $handler) use ($allowedOrigin): Response {
+    // Preflight rápido
     if (strtoupper($request->getMethod()) === 'OPTIONS') {
         $response = new \Slim\Psr7\Response();
     } else {
