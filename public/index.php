@@ -9,57 +9,66 @@ use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// ---------------------------------------------------------
-// Cargar variables de entorno (.env)
-// ---------------------------------------------------------
+/* =========================
+ * .env (solo local)
+ * ========================= */
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+$dotenv->safeLoad(); // NO revienta si no existe .env (Azure normalmente no lo tendrá)
 
-// ---------------------------------------------------------
-// Crear aplicación Slim
-// ---------------------------------------------------------
+/* =========================
+ * Slim
+ * ========================= */
 $app = AppFactory::create();
 
-// Base path para XAMPP (carpeta /unidet-api/public)
-$app->setBasePath('/unidet-api/public');
+/**
+ * BASE_PATH
+ * - Local XAMPP: /unidet-api/public
+ * - Azure: vacío
+ *
+ * Si BASE_PATH = "/" lo tratamos como vacío.
+ */
+$basePath = (string)($_ENV['BASE_PATH'] ?? getenv('BASE_PATH') ?? '');
+$basePath = trim($basePath);
+$basePath = rtrim($basePath, '/'); // "/" -> ""
 
-// Middleware para parsear el body (POST, PUT, etc.)
-// MUY IMPORTANTE para que getParsedBody() funcione.
+if ($basePath !== '') {
+    $app->setBasePath($basePath);
+}
+
 $app->addBodyParsingMiddleware();
 
-// Middleware de errores (en dev lo dejamos en true, true, true)
-$app->addErrorMiddleware(true, true, true);
+$appDebugRaw = (string)($_ENV['APP_DEBUG'] ?? getenv('APP_DEBUG') ?? 'false');
+$appDebug = in_array(strtolower($appDebugRaw), ['1','true','yes','on'], true);
+$app->addErrorMiddleware($appDebug, true, true);
 
-// ---------------------------------------------------------
-// CORS para permitir llamadas desde React (http://localhost:5173)
-// ---------------------------------------------------------
+/* =========================
+ * CORS
+ * ========================= */
+$allowedOrigin = (string)($_ENV['ALLOWED_ORIGIN'] ?? getenv('ALLOWED_ORIGIN') ?? 'http://localhost:5173');
 
-// Responder peticiones OPTIONS (preflight)
 $app->options('/{routes:.+}', function (Request $request, Response $response) {
     return $response;
 });
 
-// Middleware que agrega los headers CORS
-$app->add(function (Request $request, RequestHandler $handler): Response {
-    $response = $handler->handle($request);
+$app->add(function (Request $request, RequestHandler $handler) use ($allowedOrigin): Response {
+    // Para preflight, devolvemos rápido con headers
+    if (strtoupper($request->getMethod()) === 'OPTIONS') {
+        $response = new \Slim\Psr7\Response();
+    } else {
+        $response = $handler->handle($request);
+    }
 
     return $response
-        ->withHeader('Access-Control-Allow-Origin', 'http://localhost:5173')
-        ->withHeader(
-            'Access-Control-Allow-Headers',
-            'X-Requested-With, Content-Type, Accept, Origin, Authorization'
-        )
-        ->withHeader(
-            'Access-Control-Allow-Methods',
-            'GET, POST, PUT, PATCH, DELETE, OPTIONS'
-        )
+        ->withHeader('Access-Control-Allow-Origin', $allowedOrigin)
+        ->withHeader('Vary', 'Origin')
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
         ->withHeader('Access-Control-Allow-Credentials', 'true');
 });
 
-// ---------------------------------------------------------
-// Incluir rutas de la API
-// ---------------------------------------------------------
+/* =========================
+ * Rutas
+ * ========================= */
 require __DIR__ . '/../src/Routes.php';
 
-// Ejecutar la app
 $app->run();
