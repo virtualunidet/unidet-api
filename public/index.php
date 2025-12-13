@@ -22,19 +22,14 @@ $app = AppFactory::create();
 
 /**
  * BASE_PATH
- * - Local XAMPP: /unidet-api/public (o lo que uses)
- * - Azure SIN rewrite: /index.php
+ * Local (XAMPP): si usas /unidet-api/public, ponlo en BASE_PATH
+ * Azure con php -S y router: NO necesitas /index.php como base
  */
 $isAzure = getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME');
 
-if ($isAzure) {
-    // En Azure te está entrando como /index.php/...
-    $app->setBasePath('/index.php');
-} else {
+if (!$isAzure) {
     $basePath = (string)($_ENV['BASE_PATH'] ?? getenv('BASE_PATH') ?? '');
-    $basePath = trim($basePath);
-    $basePath = rtrim($basePath, '/'); // "/" -> ""
-
+    $basePath = rtrim(trim($basePath), '/'); // "/" -> ""
     if ($basePath !== '') {
         $app->setBasePath($basePath);
     }
