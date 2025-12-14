@@ -12,14 +12,24 @@ require __DIR__ . '/../vendor/autoload.php';
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
 $dotenv->safeLoad();
 
+/* detectar Azure */
+$isAzure = (bool)(getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME'));
+
 $app = AppFactory::create();
 
-/* XAMPP */
-$app->setBasePath('/unidet-api/public');
+/* basePath */
+if ($isAzure) {
+    // Azure: pegarás como /index.php/...
+    $app->setBasePath('/index.php');
+} else {
+    // Local (XAMPP)
+    $app->setBasePath('/unidet-api/public');
+}
 
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 
+/* errores */
 $appDebugRaw = (string)($_ENV['APP_DEBUG'] ?? getenv('APP_DEBUG') ?? 'false');
 $appDebug = in_array(strtolower($appDebugRaw), ['1','true','yes','on'], true);
 $app->addErrorMiddleware($appDebug, true, true);
