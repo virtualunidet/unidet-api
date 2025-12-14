@@ -16,40 +16,51 @@ $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
 $dotenv->safeLoad();
 
 /* =========================
+ * Detectar Azure
+ * ========================= */
+$isAzure = (bool)(getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME'));
+
+/* =========================================================
+ * AZURE FALLBACK ROUTER (modo ?r=)
+ * =========================================================
+ * Permite llamar:
+ *   /index.php?r=/ping
+ *   /index.php?r=/news
+ *   /index.php?r=/courses
+ *
+ * Importante: en modo ?r= forzamos que Slim "vea" la ruta como /news, /courses, etc.
+ */
+$usingQueryRouter = false;
+
+if ($isAzure && isset($_GET['r']) && is_string($_GET['r']) && $_GET['r'] !== '') {
+    $usingQueryRouter = true;
+
+    $route = '/' . ltrim($_GET['r'], '/');   // "/courses"
+    $_SERVER['REQUEST_URI'] = $route;        // Slim verá "/courses"
+    $_SERVER['PATH_INFO']   = $route;
+
+    // Opcional: limpia r para que no estorbe
+    // unset($_GET['r']);
+}
+
+/* =========================
  * Slim
  * ========================= */
 $app = AppFactory::create();
 
 /**
  * BASE_PATH:
- * - Local XAMPP (si estás en subcarpeta): /unidet-api/public (o lo que uses)
- * - Azure: entramos como /index.php/...
+ * - Azure normal (URL /index.php/<ruta>): basePath = /index.php
+ * - Azure con ?r= (forzamos REQUEST_URI=/ruta): basePath = "" (vacío)
+ * - Local: BASE_PATH desde .env si estás en subcarpeta (XAMPP)
  */
-$isAzure = getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME');
-
-/* =========================================================
- * AZURE FALLBACK ROUTER (NO rompe nada)
- * =========================================================
- * Si Azure no enruta bien /index.php/<ruta> en algunas rutas,
- * puedes llamar también:
- *   /index.php?r=/news
- *   /index.php?r=/courses
- *
- * Esto NO afecta si NO usas ?r=.
- */
-if ($isAzure && isset($_GET['r']) && is_string($_GET['r'])) {
-    $route = '/' . ltrim($_GET['r'], '/');
-
-    // Simula que llegó como /index.php/<ruta>
-    $_SERVER['REQUEST_URI'] = '/index.php' . $route;
-    $_SERVER['PATH_INFO']   = $route;
-}
-
-// BasePath
 if ($isAzure) {
-    $app->setBasePath('/index.php');
+    if (!$usingQueryRouter) {
+        // Tu forma actual: /index.php/ping
+        $app->setBasePath('/index.php');
+    }
+    // Si está usando ?r=, NO seteamos basePath (queda vacío)
 } else {
-    // Local (XAMPP/subcarpeta)
     $basePath = (string)($_ENV['BASE_PATH'] ?? getenv('BASE_PATH') ?? '');
     $basePath = rtrim(trim($basePath), '/');
     if ($basePath !== '') {
@@ -105,6 +116,3 @@ $app->add(function (Request $request, RequestHandler $handler) use ($allowedOrig
 require __DIR__ . '/../src/Routes.php';
 
 $app->run();
-
-
-
