@@ -15,6 +15,37 @@ $dotenv->safeLoad();
 
 /* ===== detectar Azure ===== */
 $isAzure = (bool)(getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME'));
+if ($isAzure) {
+    $reqUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    $path   = (string)(parse_url($reqUri, PHP_URL_PATH) ?? '');
+
+    // 1) Soporte modo ?r=news (fallback)
+    if (isset($_GET['r']) && is_string($_GET['r']) && trim($_GET['r']) !== '') {
+        $route = '/' . ltrim(trim((string)$_GET['r']), '/');
+
+        // Quitar r del query string para no ensuciar
+        $rest = $_GET;
+        unset($rest['r']);
+        $qs = http_build_query($rest);
+
+        $_SERVER['QUERY_STRING'] = $qs;
+        $_SERVER['REQUEST_URI']  = $route . ($qs ? ('?' . $qs) : '');
+        $_SERVER['PATH_INFO']    = $route;
+        $_SERVER['PATH_TRANSLATED'] = $_SERVER['PATH_INFO'];
+        $_SERVER['SCRIPT_NAME']  = '/index.php';
+    }
+    // 2) Soporte modo /index.php/news cuando Azure no manda PATH_INFO
+    else {
+        $prefix = '/index.php/';
+        if (
+            (empty($_SERVER['PATH_INFO']) || $_SERVER['PATH_INFO'] === '') &&
+            strncmp($path, $prefix, strlen($prefix)) === 0
+        ) {
+            $_SERVER['PATH_INFO']   = substr($path, strlen('/index.php'));
+            $_SERVER['SCRIPT_NAME'] = '/index.php';
+        }
+    }
+}
 
 /* ===== crear Slim ===== */
 $app = AppFactory::create();
