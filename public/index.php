@@ -21,9 +21,9 @@ $dotenv->safeLoad();
 $app = AppFactory::create();
 
 /**
- * BASE_PATH
- * Local (XAMPP): si usas /unidet-api/public, ponlo en BASE_PATH
- * Azure con php -S y router: NO necesitas /index.php como base
+ * BASE_PATH:
+ * - Local XAMPP (si estás en subcarpeta): /unidet-api/public (o lo que uses)
+ * - Azure con php -S: NO uses /index.php
  */
 $isAzure = getenv('WEBSITE_INSTANCE_ID') || getenv('WEBSITE_SITE_NAME');
 
@@ -35,9 +35,7 @@ if (!$isAzure) {
     }
 }
 
-/* OJO: RoutingMiddleware DESPUÉS de setBasePath */
 $app->addRoutingMiddleware();
-
 $app->addBodyParsingMiddleware();
 
 /* =========================
@@ -49,15 +47,27 @@ $app->addErrorMiddleware($appDebug, true, true);
 
 /* =========================
  * CORS
- * ========================= */
-$allowedOrigin = (string)($_ENV['ALLOWED_ORIGIN'] ?? getenv('ALLOWED_ORIGIN') ?? 'http://localhost:5173');
+ * =========================
+ * En Azure pon ALLOWED_ORIGINS con comas:
+ * https://tu-frontend.com,http://localhost:5173
+ */
+$allowedOriginsEnv = (string)($_ENV['ALLOWED_ORIGINS'] ?? getenv('ALLOWED_ORIGINS') ?? 'http://localhost:5173');
+$allowedOrigins = array_values(array_filter(array_map('trim', explode(',', $allowedOriginsEnv))));
 
-// Preflight
 $app->options('/{routes:.+}', function (Request $request, Response $response) {
     return $response;
 });
 
-$app->add(function (Request $request, RequestHandler $handler) use ($allowedOrigin): Response {
+$app->add(function (Request $request, RequestHandler $handler) use ($allowedOrigins): Response {
+    $origin = $request->getHeaderLine('Origin');
+
+    // Si viene Origin y está en allowlist, lo devolvemos. Si no viene Origin (Postman/browser directo),
+    // devolvemos el primero de la lista para no romper.
+    $allowOrigin = $allowedOrigins[0] ?? 'http://localhost:5173';
+    if ($origin && in_array($origin, $allowedOrigins, true)) {
+        $allowOrigin = $origin;
+    }
+
     if (strtoupper($request->getMethod()) === 'OPTIONS') {
         $response = new \Slim\Psr7\Response();
     } else {
@@ -65,7 +75,7 @@ $app->add(function (Request $request, RequestHandler $handler) use ($allowedOrig
     }
 
     return $response
-        ->withHeader('Access-Control-Allow-Origin', $allowedOrigin)
+        ->withHeader('Access-Control-Allow-Origin', $allowOrigin)
         ->withHeader('Vary', 'Origin')
         ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
