@@ -31,7 +31,14 @@ if ($basePath !== '') {
 
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
-$app->addErrorMiddleware(true, true, true);
+
+// ---------------------------------------------------------
+// Error middleware (dev vs prod)
+// APP_ENV=dev  -> muestra detalles
+// APP_ENV=prod -> no muestra detalles
+// ---------------------------------------------------------
+$isDev = (getenv('APP_ENV') ?: 'prod') !== 'prod';
+$app->addErrorMiddleware($isDev, $isDev, $isDev);
 
 // ---------------------------------------------------------
 // CORS (permitir lista de orígenes por env)

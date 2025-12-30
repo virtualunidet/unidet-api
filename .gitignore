@@ -1,5 +1,5 @@
-.env
-vendor/
+/.env
+/vendor/
 public/uploads/
 outputs/
 *.log

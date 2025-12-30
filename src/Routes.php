@@ -24,8 +24,17 @@ use UnidetApi\Faq;
  * Ping básico
  * =======================================================*/
 
-$app->get('/ping', function (Request $request, Response $response) {
-    $response->getBody()->write(json_encode(['message' => 'pong']));
+$app->get('/ping[/{slash:.*}]', function (Request $request, Response $response) {
+    $response->getBody()->write(json_encode(['message' => 'pong'], JSON_UNESCAPED_UNICODE));
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->get('/', function (Request $request, Response $response) {
+    $response->getBody()->write(json_encode([
+        'api' => 'unidet',
+        'status' => 'ok',
+        'try' => ['/ping', '/db-test']
+    ], JSON_UNESCAPED_UNICODE));
     return $response->withHeader('Content-Type', 'application/json');
 });
 
@@ -33,7 +42,7 @@ $app->get('/ping', function (Request $request, Response $response) {
  * Prueba de conexión a BD
  * =======================================================*/
 
-$app->get('/db-test', function (Request $request, Response $response) {
+$app->get('/db-test[/{slash:.*}]', function (Request $request, Response $response) {
     try {
         $pdo  = DB::getConnection();
         $stmt = $pdo->query('SELECT 1 AS ok');
@@ -55,6 +64,7 @@ $app->get('/db-test', function (Request $request, Response $response) {
                         ->withHeader('Content-Type', 'application/json');
     }
 });
+
 
 /* =========================================================
  * Login
@@ -496,6 +506,26 @@ $app->post('/admin/courses', function (Request $request, Response $response) {
     $data['visible'] = isset($data['visible']) ? (int) !!$data['visible'] : 1;
     $data['orden']   = isset($data['orden'])   ? max(0, (int) $data['orden']) : 0;
 
+    // ✅ BLINDAJE: normalizar imagen_url si viene
+    if (array_key_exists('imagen_url', $data)) {
+        $img = trim((string)$data['imagen_url']);
+        $img = str_replace('\\', '/', $img); // <- clave: fuera backslashes
+
+        // vacío -> null
+        if ($img === '') {
+            $data['imagen_url'] = null;
+        } else {
+            // Solo permitimos el patrón esperado de tu sistema
+            // /uploads/courses/archivo.ext
+            if (preg_match('#^/uploads/courses/[^/]+\.(jpg|jpeg|png|webp)$#i', $img)) {
+                $data['imagen_url'] = $img;
+            } else {
+                // si llega basura (C:\fakepath, rutas raras, etc) no guardamos eso
+                $data['imagen_url'] = null;
+            }
+        }
+    }
+
     $id = Course::create($data, (int) $user['sub']);
 
     $response->getBody()->write(json_encode([
@@ -506,6 +536,7 @@ $app->post('/admin/courses', function (Request $request, Response $response) {
     return $response->withStatus(201)
                     ->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['admin', 'superadmin']));
+
 
 // PUT /admin/courses/{id}
 $app->put('/admin/courses/{id}', function (Request $request, Response $response, array $args) {
@@ -524,6 +555,26 @@ $app->put('/admin/courses/{id}', function (Request $request, Response $response,
     $data['visible'] = isset($data['visible']) ? (int) !!$data['visible'] : 1;
     $data['orden']   = isset($data['orden'])   ? max(0, (int) $data['orden']) : 0;
 
+    // ✅ BLINDAJE: normalizar imagen_url si viene
+    if (array_key_exists('imagen_url', $data)) {
+        $img = trim((string)$data['imagen_url']);
+        $img = str_replace('\\', '/', $img); // <- clave: fuera backslashes
+
+        // vacío -> null
+        if ($img === '') {
+            $data['imagen_url'] = null;
+        } else {
+            // Solo permitimos el patrón esperado de tu sistema
+            // /uploads/courses/archivo.ext
+            if (preg_match('#^/uploads/courses/[^/]+\.(jpg|jpeg|png|webp)$#i', $img)) {
+                $data['imagen_url'] = $img;
+            } else {
+                // si llega basura (C:\fakepath, rutas raras, etc) no guardamos eso
+                $data['imagen_url'] = null;
+            }
+        }
+    }
+
     $ok = Course::update($id, $data);
 
     if (!$ok) {
@@ -540,6 +591,7 @@ $app->put('/admin/courses/{id}', function (Request $request, Response $response,
 
     return $response->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['admin', 'superadmin']));
+
 
 // DELETE /admin/courses/{id}
 $app->delete('/admin/courses/{id}', function (Request $request, Response $response, array $args) {

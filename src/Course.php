@@ -46,7 +46,16 @@ class Course
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // ✅ Parche: normalizar imagen_url (por si la BD trae \)
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            if (!empty($r['imagen_url'])) {
+                $r['imagen_url'] = str_replace('\\', '/', (string)$r['imagen_url']);
+            }
+        }
+        unset($r);
+
+        return $rows;
     }
 
     /**
@@ -77,7 +86,16 @@ class Course
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // ✅ Parche: normalizar imagen_url (por si la BD trae \)
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            if (!empty($r['imagen_url'])) {
+                $r['imagen_url'] = str_replace('\\', '/', (string)$r['imagen_url']);
+            }
+        }
+        unset($r);
+
+        return $rows;
     }
 
     public static function getById(int $id): ?array
@@ -97,6 +115,11 @@ class Course
         $stmt = $pdo->prepare($sql);
         $stmt->execute([':id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // ✅ Parche: normalizar imagen_url (por si la BD trae \)
+        if ($row && !empty($row['imagen_url'])) {
+            $row['imagen_url'] = str_replace('\\', '/', (string)$row['imagen_url']);
+        }
 
         return $row ?: null;
     }
@@ -193,6 +216,7 @@ class Course
         $basename  = bin2hex(random_bytes(8));
         $filename  = sprintf('%s.%s', $basename, $extension);
 
+        // Esto es ruta de disco, aquí sí aplica DIRECTORY_SEPARATOR
         $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
 
         return $filename;

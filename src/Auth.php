@@ -9,9 +9,15 @@ use PDO;
 
 class Auth
 {
+    private static function env(string $key, string $default = ''): string
+    {
+        // Azure App Service: variables por getenv()
+        return getenv($key) ?: ($_ENV[$key] ?? $default);
+    }
+
     public static function generateToken(array $payload): string
     {
-        $secret = $_ENV['JWT_SECRET'] ?? 'secret';
+        $secret = self::env('JWT_SECRET', 'secret');
         $now    = time();
 
         $tokenPayload = array_merge([
@@ -24,7 +30,7 @@ class Auth
 
     public static function validateToken(string $token): array
     {
-        $secret  = $_ENV['JWT_SECRET'] ?? 'secret';
+        $secret  = self::env('JWT_SECRET', 'secret');
         $decoded = JWT::decode($token, new Key($secret, 'HS256'));
         return (array) $decoded;
     }
@@ -41,21 +47,17 @@ class Auth
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$user) {
-            return null; // usuario no existe
-        }
+        if (!$user) return null;
 
-        // Verificar password
         if (!password_verify($password, $user['password_hash'])) {
-            return null; // contraseña incorrecta
+            return null;
         }
 
-        // Usuario autenticado correctamente
         return [
             'id'    => (int)$user['id'],
             'name'  => $user['nombre'],
             'email' => $user['email'],
-            'role'  => $user['role'], // "aspirant" | "student" | "admin"
+            'role'  => $user['role'],
         ];
     }
 }
