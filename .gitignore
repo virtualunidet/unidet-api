@@ -1,5 +1,18 @@
-/.env
+# Secrets
+.env
+.env.*
+!.env.example
+
+# PHP deps
 /vendor/
+
+# Runtime files (no versionar)
 public/uploads/
 outputs/
 *.log
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
