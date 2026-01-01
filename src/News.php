@@ -7,7 +7,7 @@ use PDO;
 
 class News
 {
-    // Listado público con paginación básica
+    // Listado público con paginación básica (PostgreSQL)
     public static function listPublic(int $limit = 20, int $offset = 0): array
     {
         $pdo = DB::getConnection();
@@ -16,18 +16,17 @@ class News
                 FROM news
                 WHERE visible = 1
                 ORDER BY fecha_publicacion DESC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-        $stmt->bindValue(':limit',  $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    // 🆕 Listado completo para administrador (incluye no visibles)
+    // Listado completo para administrador (incluye no visibles)
     public static function listAdmin(): array
     {
         $pdo = DB::getConnection();
@@ -45,8 +44,7 @@ class News
                 ORDER BY fecha_publicacion DESC";
 
         $stmt = $pdo->query($sql);
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
     public static function getById(int $id): ?array
@@ -78,7 +76,7 @@ class News
             $fechaPublicacion = date('Y-m-d H:i:s');
         }
 
-        $visible = isset($data['visible']) ? (int) !!$data['visible'] : 1;
+        $visible = isset($data['visible']) ? (int)!!$data['visible'] : 1;
 
         $stmt->execute([
             ':titulo'            => $data['titulo'],
@@ -89,7 +87,7 @@ class News
             ':creado_por'        => $userId,
         ]);
 
-        return (int) $pdo->lastInsertId();
+        return (int)$pdo->lastInsertId();
     }
 
     public static function update(int $id, array $data): bool
@@ -102,13 +100,13 @@ class News
                     contenido = :contenido,
                     fecha_publicacion = :fecha_publicacion,
                     visible = :visible,
-                    updated_at = SYSDATETIME()
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
 
         $fechaPublicacion = $data['fecha_publicacion'] ?? date('Y-m-d H:i:s');
-        $visible = isset($data['visible']) ? (int) !!$data['visible'] : 1;
+        $visible = isset($data['visible']) ? (int)!!$data['visible'] : 1;
 
         return $stmt->execute([
             ':id'                => $id,
