@@ -4,6 +4,9 @@ declare(strict_types=1);
 /**
  * Wrapper para soportar: /index.php?r=/news
  * Convierte r en PATH_INFO/REQUEST_URI y luego carga Slim (public/index.php)
+ *
+ * En producción (DigitalOcean), normalmente NO usas ?r=...
+ * pero no estorba dejarlo.
  */
 if (isset($_GET['r'])) {
     $r = (string) $_GET['r'];
