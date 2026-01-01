@@ -35,7 +35,6 @@ class Middleware
             }
 
             $request = $request->withAttribute('user', $payload);
-
             return $handler->handle($request);
         };
     }
