@@ -1,3 +1,4 @@
+
 <?php
 declare(strict_types=1);
 
@@ -23,12 +24,12 @@ class Admission
                 FROM admission_steps
                 WHERE visible = 1
                 ORDER BY orden ASC, id ASC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit
+                OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -52,12 +53,12 @@ class Admission
                        updated_at
                 FROM admission_steps
                 ORDER BY orden ASC, id ASC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit
+                OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -121,7 +122,7 @@ class Admission
                     descripcion = :descripcion,
                     visible     = :visible,
                     orden       = :orden,
-                    updated_at  = SYSDATETIME()
+                    updated_at  = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
