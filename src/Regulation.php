@@ -14,10 +14,6 @@ class Regulation
         return DB::getConnection();
     }
 
-    /* =========================================================
-     *  Helper: obtener la fila única de regulations
-     * =======================================================*/
-
     /**
      * Devuelve la fila única de regulations (o null si no existe).
      */
@@ -25,10 +21,11 @@ class Regulation
     {
         $pdo = self::db();
 
-        // SQL Server: TOP 1
-        $sql = "SELECT TOP 1 id, content_html, pdf_path, updated_at
+        // PostgreSQL: LIMIT 1
+        $sql = "SELECT id, content_html, pdf_path, updated_at
                 FROM regulations
-                ORDER BY id ASC";
+                ORDER BY id ASC
+                LIMIT 1";
 
         $stmt = $pdo->query($sql);
         $row  = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -43,24 +40,20 @@ class Regulation
     {
         $row = self::getSingleton();
         if ($row) {
-            return (int) $row['id'];
+            return (int)$row['id'];
         }
 
         $pdo = self::db();
-        // Creamos una fila vacía
+
+        // Creamos una fila vacía (PostgreSQL: no existe N'')
         $pdo->exec("
             INSERT INTO regulations (content_html, pdf_path)
-            VALUES (N'', NULL)
+            VALUES ('', NULL)
         ");
 
-        // Volvemos a leer
         $row = self::getSingleton();
-        return (int) ($row['id'] ?? 1);
+        return (int)($row['id'] ?? 1);
     }
-
-    /* =========================================================
-     *  Texto grande y PDF
-     * =======================================================*/
 
     /**
      * Actualiza el HTML completo del reglamento.
@@ -72,7 +65,7 @@ class Regulation
 
         $sql = "UPDATE regulations
                 SET content_html = :html,
-                    updated_at   = SYSDATETIME()
+                    updated_at   = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
@@ -92,7 +85,7 @@ class Regulation
 
         $sql = "UPDATE regulations
                 SET pdf_path  = :path,
-                    updated_at = SYSDATETIME()
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
@@ -101,10 +94,6 @@ class Regulation
             ':id'   => $id,
         ]);
     }
-
-    /* =========================================================
-     *  Estructura secciones + puntos (público / admin)
-     * =======================================================*/
 
     /**
      * Estructura para la parte pública:
@@ -115,7 +104,6 @@ class Regulation
     {
         $pdo = self::db();
 
-        // Secciones visibles
         $sqlSections = "
             SELECT id, titulo, descripcion, orden
             FROM regulation_sections
@@ -131,7 +119,6 @@ class Regulation
         $sectionIds = array_column($sections, 'id');
         $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
 
-        // Items visibles
         $sqlItems = "
             SELECT id, section_id, titulo, contenido, orden
             FROM regulation_items
@@ -143,13 +130,10 @@ class Regulation
         $stmtItems->execute($sectionIds);
         $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
-        // Agrupar items por sección
         $bySection = [];
         foreach ($items as $it) {
             $sid = (int)$it['section_id'];
-            if (!isset($bySection[$sid])) {
-                $bySection[$sid] = [];
-            }
+            $bySection[$sid] ??= [];
             $bySection[$sid][] = [
                 'id'        => (int)$it['id'],
                 'titulo'    => $it['titulo'],
@@ -158,7 +142,6 @@ class Regulation
             ];
         }
 
-        // Adjuntar items a cada sección
         $result = [];
         foreach ($sections as $sec) {
             $sid = (int)$sec['id'];
@@ -211,9 +194,7 @@ class Regulation
         $bySection = [];
         foreach ($items as $it) {
             $sid = (int)$it['section_id'];
-            if (!isset($bySection[$sid])) {
-                $bySection[$sid] = [];
-            }
+            $bySection[$sid] ??= [];
             $bySection[$sid][] = [
                 'id'        => (int)$it['id'],
                 'titulo'    => $it['titulo'],
@@ -238,10 +219,6 @@ class Regulation
 
         return $result;
     }
-
-    /* =========================================================
-     *  CRUD secciones
-     * =======================================================*/
 
     public static function createSection(array $data): int
     {
@@ -303,12 +280,10 @@ class Regulation
         try {
             $pdo->beginTransaction();
 
-            // Primero borrar sus items
             $sqlItems = "DELETE FROM regulation_items WHERE section_id = :id";
             $stmtItems = $pdo->prepare($sqlItems);
             $stmtItems->execute([':id' => $id]);
 
-            // Luego la sección
             $sqlSec = "DELETE FROM regulation_sections WHERE id = :id";
             $stmtSec = $pdo->prepare($sqlSec);
             $stmtSec->execute([':id' => $id]);
@@ -322,10 +297,6 @@ class Regulation
             return false;
         }
     }
-
-    /* =========================================================
-     *  CRUD items (puntos)
-     * =======================================================*/
 
     public static function createItem(array $data): int
     {
