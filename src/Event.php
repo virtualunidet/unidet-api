@@ -15,12 +15,12 @@ class Event
                 FROM events
                 WHERE visible = 1
                 ORDER BY fecha_inicio ASC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit
+                OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -33,12 +33,12 @@ class Event
         $sql = "SELECT id, titulo, descripcion, fecha_inicio, fecha_fin, lugar, visible
                 FROM events
                 ORDER BY fecha_inicio ASC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit
+                OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -98,7 +98,7 @@ class Event
                     fecha_fin     = :fecha_fin,
                     lugar         = :lugar,
                     visible       = :visible,
-                    updated_at    = SYSDATETIME()
+                    updated_at    = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
