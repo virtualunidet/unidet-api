@@ -1,3 +1,4 @@
+
 <?php
 declare(strict_types=1);
 
@@ -20,24 +21,26 @@ class Contact
         $pdo = self::pdo();
 
         $stmt = $pdo->query("
-            SELECT TOP 1 *
+            SELECT *
             FROM contact_settings
             ORDER BY id ASC
+            LIMIT 1
         ");
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$row) {
-            // crea fila inicial si no existe
+            // crea fila inicial si no existe (PostgreSQL: no existe N'')
             $stmtInsert = $pdo->prepare("
                 INSERT INTO contact_settings (phones, emails, socials)
-                VALUES (N'[]', N'[]', N'[]')
+                VALUES ('[]', '[]', '[]')
             ");
             $stmtInsert->execute();
 
             $stmt = $pdo->query("
-                SELECT TOP 1 *
+                SELECT *
                 FROM contact_settings
                 ORDER BY id ASC
+                LIMIT 1
             ");
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
         }
@@ -139,7 +142,7 @@ class Contact
                 schedule    = :schedule,
                 social_text = :social_text,
                 socials     = :socials,
-                updated_at  = SYSDATETIME()
+                updated_at  = CURRENT_TIMESTAMP
             WHERE id = :id
         ");
 
@@ -166,7 +169,7 @@ class Contact
         $stmt = $pdo->prepare("
             UPDATE contact_settings
             SET hero_image = :hero_image,
-                updated_at = SYSDATETIME()
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = :id
         ");
 
