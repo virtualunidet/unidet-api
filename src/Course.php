@@ -32,9 +32,10 @@ class Course
             $sql .= " AND categoria = :categoria";
         }
 
+        // ✅ PostgreSQL: LIMIT/OFFSET
         $sql .= " ORDER BY orden ASC, id ASC
-                  OFFSET :offset ROWS
-                  FETCH NEXT :limit ROWS ONLY";
+                  LIMIT :limit
+                  OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
 
@@ -42,8 +43,8 @@ class Course
             $stmt->bindValue(':categoria', $categoria, PDO::PARAM_STR);
         }
 
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         // ✅ Parche: normalizar imagen_url (por si la BD trae \)
@@ -67,6 +68,7 @@ class Course
     ): array {
         $pdo = DB::getConnection();
 
+        // ✅ PostgreSQL: LIMIT/OFFSET
         $sql = "SELECT id,
                        titulo,
                        descripcion,
@@ -78,12 +80,12 @@ class Course
                        updated_at
                 FROM courses
                 ORDER BY categoria ASC, orden ASC, id ASC
-                OFFSET :offset ROWS
-                FETCH NEXT :limit ROWS ONLY";
+                LIMIT :limit
+                OFFSET :offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
         // ✅ Parche: normalizar imagen_url (por si la BD trae \)
@@ -148,7 +150,6 @@ class Course
         $stmt = $pdo->prepare($sql);
 
         $visible = isset($data['visible']) ? (int) !!$data['visible'] : 1;
-        // 👇 nunca menor que 0
         $orden   = isset($data['orden']) ? max(0, (int) $data['orden']) : 0;
 
         $stmt->execute([
@@ -175,13 +176,12 @@ class Course
                     imagen_url  = :imagen_url,
                     visible     = :visible,
                     orden       = :orden,
-                    updated_at  = SYSDATETIME()
+                    updated_at  = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
 
         $visible = isset($data['visible']) ? (int) !!$data['visible'] : 1;
-        // 👇 nunca menor que 0
         $orden   = isset($data['orden']) ? max(0, (int) $data['orden']) : 0;
 
         return $stmt->execute([
