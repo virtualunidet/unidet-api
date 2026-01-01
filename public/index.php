@@ -9,6 +9,22 @@ use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+/**
+ * ---------------------------------------------------------
+ * DEBUG para DigitalOcean (captura errores en Runtime Logs)
+ * Actívalo con: APP_DEBUG=true (env var)
+ * ---------------------------------------------------------
+ */
+$debug = (getenv('APP_DEBUG') ?: 'false') === 'true';
+
+if ($debug) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    ini_set('log_errors', '1');
+    ini_set('error_log', 'php://stderr'); // DO captura stderr en Runtime Logs
+    error_reporting(E_ALL);
+}
+
 // ---------------------------------------------------------
 // Cargar .env SOLO si existe (en Azure normalmente NO existe)
 // ---------------------------------------------------------
@@ -38,7 +54,11 @@ $app->addRoutingMiddleware();
 // APP_ENV=prod -> no muestra detalles
 // ---------------------------------------------------------
 $isDev = (getenv('APP_ENV') ?: 'prod') !== 'prod';
-$app->addErrorMiddleware($isDev, $isDev, $isDev);
+
+// 👇 si APP_DEBUG=true, forzamos que muestre detalles aunque APP_ENV sea prod
+$showErrors = $isDev || $debug;
+
+$app->addErrorMiddleware($showErrors, $showErrors, $showErrors);
 
 // ---------------------------------------------------------
 // CORS (permitir lista de orígenes por env)
