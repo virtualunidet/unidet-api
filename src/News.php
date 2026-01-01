@@ -64,7 +64,7 @@ class News
         return $row ?: null;
     }
 
-    public static function create(array $data, int $userId = null): int
+    public static function create(array $data, ?int $userId = null): int
     {
         $pdo = DB::getConnection();
 
