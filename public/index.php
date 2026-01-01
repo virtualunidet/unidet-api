@@ -9,24 +9,8 @@ use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-/**
- * ---------------------------------------------------------
- * DEBUG para DigitalOcean (captura errores en Runtime Logs)
- * Actívalo con: APP_DEBUG=true (env var)
- * ---------------------------------------------------------
- */
-$debug = (getenv('APP_DEBUG') ?: 'false') === 'true';
-
-if ($debug) {
-    ini_set('display_errors', '1');
-    ini_set('display_startup_errors', '1');
-    ini_set('log_errors', '1');
-    ini_set('error_log', 'php://stderr'); // DO captura stderr en Runtime Logs
-    error_reporting(E_ALL);
-}
-
 // ---------------------------------------------------------
-// Cargar .env SOLO si existe (en Azure normalmente NO existe)
+// Cargar .env SOLO si existe (en DO normalmente NO existe)
 // ---------------------------------------------------------
 $envPath = __DIR__ . '/..';
 if (is_file($envPath . '/.env')) {
@@ -35,11 +19,25 @@ if (is_file($envPath . '/.env')) {
 }
 
 // ---------------------------------------------------------
+// DEBUG por variable de entorno (temporal)
+// APP_DEBUG=true -> muestra warnings/errores (solo mientras arreglas)
+// ---------------------------------------------------------
+$debug = (($_ENV['APP_DEBUG'] ?? getenv('APP_DEBUG') ?? 'false') === 'true');
+
+if ($debug) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    ini_set('log_errors', '1');
+    ini_set('error_log', 'php://stderr'); // para ver en Runtime Logs
+    error_reporting(E_ALL);
+}
+
+// ---------------------------------------------------------
 // Crear aplicación Slim
 // ---------------------------------------------------------
 $app = AppFactory::create();
 
-// BasePath dinámico (local: /unidet-api/public, Azure: vacío)
+// BasePath dinámico
 $basePath = getenv('BASE_PATH') ?: '';
 if ($basePath !== '') {
     $app->setBasePath($basePath);
@@ -50,15 +48,9 @@ $app->addRoutingMiddleware();
 
 // ---------------------------------------------------------
 // Error middleware (dev vs prod)
-// APP_ENV=dev  -> muestra detalles
-// APP_ENV=prod -> no muestra detalles
 // ---------------------------------------------------------
-$isDev = (getenv('APP_ENV') ?: 'prod') !== 'prod';
-
-// 👇 si APP_DEBUG=true, forzamos que muestre detalles aunque APP_ENV sea prod
-$showErrors = $isDev || $debug;
-
-$app->addErrorMiddleware($showErrors, $showErrors, $showErrors);
+$isDev = $debug || ((getenv('APP_ENV') ?: 'prod') !== 'prod');
+$app->addErrorMiddleware($isDev, $isDev, $isDev);
 
 // ---------------------------------------------------------
 // CORS (permitir lista de orígenes por env)
@@ -73,10 +65,8 @@ $app->add(function (Request $request, RequestHandler $handler) use ($allowedOrig
     $origin = $request->getHeaderLine('Origin');
     $response = $handler->handle($request);
 
-    // Si no hay Origin (ej. Postman o same-origin), no forzamos CORS
     if (!$origin) return $response;
 
-    // Solo reflejar si está en la allowlist
     if (in_array($origin, $allowedOrigins, true)) {
         return $response
             ->withHeader('Access-Control-Allow-Origin', $origin)
