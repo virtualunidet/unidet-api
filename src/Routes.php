@@ -1506,7 +1506,8 @@ $app->post('/admin/users', function (Request $request, Response $response) {
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
     $sql = "INSERT INTO users (nombre, email, password_hash, role, is_active, created_at)
-            VALUES (:nombre, :email, :password_hash, :role, 1, SYSDATETIME())";
+        VALUES (:nombre, :email, :password_hash, :role, 1, CURRENT_TIMESTAMP)";
+
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
@@ -1585,7 +1586,7 @@ $app->put('/admin/users/{id}', function (Request $request, Response $response, a
         $verified = (bool)$data['verified'];
 
         if ($verified) {
-            $fields[] = 'email_verified_at = SYSDATETIME()';
+            $fields[] = 'email_verified_at = CURRENT_TIMESTAMP';
         } else {
             $fields[] = 'email_verified_at = NULL';
         }
