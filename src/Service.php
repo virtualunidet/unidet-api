@@ -42,14 +42,18 @@ class Service
                 VALUES (:titulo, :descripcion, :orden, :visible)";
 
         $stmt = $pdo->prepare($sql);
+
+        $visible = isset($data['visible']) ? (int)!!$data['visible'] : 1;
+        $orden   = isset($data['orden']) ? max(0, (int)$data['orden']) : 0;
+
         $stmt->execute([
-            ':titulo'      => $data['titulo'],
+            ':titulo'      => (string)($data['titulo'] ?? ''),
             ':descripcion' => $data['descripcion'] ?? null,
-            ':orden'       => isset($data['orden']) ? (int)$data['orden'] : 1,
-            ':visible'     => isset($data['visible']) ? (int)$data['visible'] : 1,
+            ':orden'       => $orden,
+            ':visible'     => $visible,
         ]);
 
-        return (int) $pdo->lastInsertId();
+        return (int)$pdo->lastInsertId();
     }
 
     public static function update(int $id, array $data): bool
@@ -65,12 +69,15 @@ class Service
 
         $stmt = $pdo->prepare($sql);
 
+        $visible = isset($data['visible']) ? (int)!!$data['visible'] : 1;
+        $orden   = isset($data['orden']) ? max(0, (int)$data['orden']) : 0;
+
         return $stmt->execute([
             ':id'          => $id,
-            ':titulo'      => $data['titulo'],
+            ':titulo'      => (string)($data['titulo'] ?? ''),
             ':descripcion' => $data['descripcion'] ?? null,
-            ':orden'       => isset($data['orden']) ? (int)$data['orden'] : 1,
-            ':visible'     => isset($data['visible']) ? (int)$data['visible'] : 1,
+            ':orden'       => $orden,
+            ':visible'     => $visible,
         ]);
     }
 
