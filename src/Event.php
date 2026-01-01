@@ -11,6 +11,9 @@ class Event
     {
         $pdo = DB::getConnection();
 
+        $limit  = max(1, (int)$limit);
+        $offset = max(0, (int)$offset);
+
         $sql = "SELECT id, titulo, descripcion, fecha_inicio, fecha_fin, lugar
                 FROM events
                 WHERE visible = 1
@@ -23,12 +26,15 @@ class Event
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
     public static function listAdmin(int $limit = 100, int $offset = 0): array
     {
         $pdo = DB::getConnection();
+
+        $limit  = max(1, (int)$limit);
+        $offset = max(0, (int)$offset);
 
         $sql = "SELECT id, titulo, descripcion, fecha_inicio, fecha_fin, lugar, visible
                 FROM events
@@ -41,7 +47,7 @@ class Event
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
     public static function getById(int $id): ?array
@@ -54,8 +60,8 @@ class Event
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute([':id' => $id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }
 
@@ -72,10 +78,10 @@ class Event
 
         $fechaInicio = $data['fecha_inicio'] ?? date('Y-m-d 08:00:00');
         $fechaFin    = $data['fecha_fin']    ?? null;
-        $visible     = isset($data['visible']) ? (int) !!$data['visible'] : 1;
+        $visible     = isset($data['visible']) ? (int)!!$data['visible'] : 1;
 
         $stmt->execute([
-            ':titulo'       => $data['titulo'],
+            ':titulo'       => (string)($data['titulo'] ?? ''),
             ':descripcion'  => $data['descripcion'] ?? null,
             ':fecha_inicio' => $fechaInicio,
             ':fecha_fin'    => $fechaFin,
@@ -84,7 +90,7 @@ class Event
             ':creado_por'   => $userId,
         ]);
 
-        return (int) $pdo->lastInsertId();
+        return (int)$pdo->lastInsertId();
     }
 
     public static function update(int $id, array $data): bool
@@ -105,11 +111,11 @@ class Event
 
         $fechaInicio = $data['fecha_inicio'] ?? date('Y-m-d 08:00:00');
         $fechaFin    = $data['fecha_fin']    ?? null;
-        $visible     = isset($data['visible']) ? (int) !!$data['visible'] : 1;
+        $visible     = isset($data['visible']) ? (int)!!$data['visible'] : 1;
 
         return $stmt->execute([
             ':id'           => $id,
-            ':titulo'       => $data['titulo'],
+            ':titulo'       => (string)($data['titulo'] ?? ''),
             ':descripcion'  => $data['descripcion'] ?? null,
             ':fecha_inicio' => $fechaInicio,
             ':fecha_fin'    => $fechaFin,
