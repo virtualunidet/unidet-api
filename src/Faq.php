@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace UnidetApi;
 
 use PDO;
-use PDOException;
 
 class Faq
 {
@@ -87,7 +86,7 @@ class Faq
                     respuesta_larga = :respuesta_larga,
                     visible         = :visible,
                     orden           = :orden,
-                    updated_at      = SYSDATETIME()
+                    updated_at      = CURRENT_TIMESTAMP
                 WHERE id = :id";
 
         $stmt = $pdo->prepare($sql);
