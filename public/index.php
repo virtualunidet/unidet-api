@@ -50,7 +50,7 @@ $app->addRoutingMiddleware();
 // Error middleware (dev vs prod)
 // ---------------------------------------------------------
 $isDev = $debug || ((getenv('APP_ENV') ?: 'prod') !== 'prod');
-$app->addErrorMiddleware($isDev, $isDev, $isDev);
+$errorMiddleware = $app->addErrorMiddleware($isDev, $isDev, $isDev);
 
 // ---------------------------------------------------------
 // CORS (permitir lista de orígenes por env)
