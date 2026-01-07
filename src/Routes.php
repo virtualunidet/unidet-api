@@ -4,7 +4,7 @@ declare(strict_types=1);
 use Slim\App;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\ResponseInterface as Response;
-
+use Slim\Psr7\Stream;
 use UnidetApi\Admission;
 use UnidetApi\Auth;
 use UnidetApi\Middleware;
@@ -37,6 +37,49 @@ $app->get('/', function (Request $request, Response $response) {
     ], JSON_UNESCAPED_UNICODE));
     return $response->withHeader('Content-Type', 'application/json');
 });
+
+/* =========================================================
+ * Static uploads (imagenes/pdf)
+ * =======================================================*/
+$app->get('/uploads/{folder}/{file}', function (Request $request, Response $response, array $args) {
+    $folder = (string)($args['folder'] ?? '');
+    $file   = (string)($args['file'] ?? '');
+
+    $allowed = ['courses', 'news', 'contact', 'regulation'];
+    if (!in_array($folder, $allowed, true)) {
+        return $response->withStatus(404);
+    }
+
+    if (!preg_match('/^[A-Za-z0-9._-]+$/', $file)) {
+        $response->getBody()->write(json_encode(['error' => 'Nombre inválido'], JSON_UNESCAPED_UNICODE));
+        return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+    }
+
+    $baseDir = dirname(__DIR__); // unidet-api/
+    $path = $baseDir . "/public/uploads/{$folder}/{$file}";
+
+    if (!is_file($path)) {
+        $response->getBody()->write(json_encode(['error' => 'Archivo no encontrado'], JSON_UNESCAPED_UNICODE));
+        return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+    }
+
+    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+    $mime = match ($ext) {
+        'jpg', 'jpeg' => 'image/jpeg',
+        'png'         => 'image/png',
+        'webp'        => 'image/webp',
+        'pdf'         => 'application/pdf',
+        default       => 'application/octet-stream',
+    };
+
+    $stream = new Stream(fopen($path, 'rb'));
+
+    return $response
+        ->withBody($stream)
+        ->withHeader('Content-Type', $mime)
+        ->withHeader('Cache-Control', 'public, max-age=86400');
+});
+
 
 /* =========================================================
  * Prueba de conexión a BD
