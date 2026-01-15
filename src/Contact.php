@@ -1,4 +1,3 @@
-
 <?php
 declare(strict_types=1);
 
@@ -29,7 +28,6 @@ class Contact
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$row) {
-            // crea fila inicial si no existe (PostgreSQL: no existe N'')
             $stmtInsert = $pdo->prepare("
                 INSERT INTO contact_settings (phones, emails, socials)
                 VALUES ('[]', '[]', '[]')
@@ -64,10 +62,6 @@ class Contact
         return is_array($decoded) ? $decoded : [];
     }
 
-    /* ==========================
-     *    PUBLIC / ADMIN GET
-     * ==========================*/
-
     public static function getPublic(): array
     {
         $row = self::getRow();
@@ -85,27 +79,19 @@ class Contact
 
     public static function getAdmin(): array
     {
-        // por ahora igual que público
         return self::getPublic();
     }
-
-    /* ==========================
-     *         UPDATE
-     * ==========================*/
 
     public static function update(array $data): bool
     {
         $pdo = self::pdo();
         $row = self::getRow();
 
-        // Limpieza básica
         $phones = [];
         if (isset($data['phones']) && is_array($data['phones'])) {
             foreach ($data['phones'] as $value) {
                 $value = trim((string)$value);
-                if ($value !== '') {
-                    $phones[] = $value;
-                }
+                if ($value !== '') $phones[] = $value;
             }
         }
 
@@ -113,9 +99,7 @@ class Contact
         if (isset($data['emails']) && is_array($data['emails'])) {
             foreach ($data['emails'] as $value) {
                 $value = trim((string)$value);
-                if ($value !== '') {
-                    $emails[] = $value;
-                }
+                if ($value !== '') $emails[] = $value;
             }
         }
 
@@ -125,10 +109,7 @@ class Contact
                 $label = trim((string)($item['label'] ?? ''));
                 $url   = trim((string)($item['url'] ?? ''));
                 if ($label !== '' && $url !== '') {
-                    $socials[] = [
-                        'label' => $label,
-                        'url'   => $url,
-                    ];
+                    $socials[] = ['label' => $label, 'url' => $url];
                 }
             }
         }
@@ -156,10 +137,6 @@ class Contact
             ':id'          => $row['id'],
         ]);
     }
-
-    /* ==========================
-     *      UPDATE IMAGE
-     * ==========================*/
 
     public static function updateImage(string $url): bool
     {
