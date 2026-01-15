@@ -5,16 +5,13 @@ namespace UnidetApi;
 
 use PDO;
 
-class Contact
+final class Contact
 {
     private static function pdo(): PDO
     {
         return DB::getConnection();
     }
 
-    /**
-     * Obtiene (o crea) la fila única de contact_settings.
-     */
     private static function getRow(): array
     {
         $pdo = self::pdo();
@@ -29,8 +26,8 @@ class Contact
 
         if (!$row) {
             $stmtInsert = $pdo->prepare("
-                INSERT INTO contact_settings (phones, emails, socials)
-                VALUES ('[]', '[]', '[]')
+                INSERT INTO contact_settings (phones, emails, socials, address, schedule, social_text, hero_image)
+                VALUES ('[]', '[]', '[]', '', '', '', NULL)
             ");
             $stmtInsert->execute();
 
@@ -47,9 +44,9 @@ class Contact
             'id'          => 1,
             'phones'      => '[]',
             'emails'      => '[]',
-            'address'     => null,
-            'schedule'    => null,
-            'social_text' => null,
+            'address'     => '',
+            'schedule'    => '',
+            'social_text' => '',
             'socials'     => '[]',
             'hero_image'  => null,
         ];
@@ -69,9 +66,9 @@ class Contact
         return [
             'phones'      => self::decodeJson($row['phones'] ?? '[]'),
             'emails'      => self::decodeJson($row['emails'] ?? '[]'),
-            'address'     => $row['address'] ?? '',
-            'schedule'    => $row['schedule'] ?? '',
-            'social_text' => $row['social_text'] ?? '',
+            'address'     => (string)($row['address'] ?? ''),
+            'schedule'    => (string)($row['schedule'] ?? ''),
+            'social_text' => (string)($row['social_text'] ?? ''),
             'socials'     => self::decodeJson($row['socials'] ?? '[]'),
             'hero_image'  => $row['hero_image'] ?? null,
         ];
@@ -122,17 +119,16 @@ class Contact
                 address     = :address,
                 schedule    = :schedule,
                 social_text = :social_text,
-                socials     = :socials,
-                updated_at  = CURRENT_TIMESTAMP
+                socials     = :socials
             WHERE id = :id
         ");
 
         return $stmt->execute([
             ':phones'      => json_encode($phones, JSON_UNESCAPED_UNICODE),
             ':emails'      => json_encode($emails, JSON_UNESCAPED_UNICODE),
-            ':address'     => $data['address']     ?? null,
-            ':schedule'    => $data['schedule']    ?? null,
-            ':social_text' => $data['social_text'] ?? null,
+            ':address'     => (string)($data['address'] ?? ''),
+            ':schedule'    => (string)($data['schedule'] ?? ''),
+            ':social_text' => (string)($data['social_text'] ?? ''),
             ':socials'     => json_encode($socials, JSON_UNESCAPED_UNICODE),
             ':id'          => $row['id'],
         ]);
@@ -145,8 +141,7 @@ class Contact
 
         $stmt = $pdo->prepare("
             UPDATE contact_settings
-            SET hero_image = :hero_image,
-                updated_at = CURRENT_TIMESTAMP
+            SET hero_image = :hero_image
             WHERE id = :id
         ");
 
