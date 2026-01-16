@@ -1057,13 +1057,28 @@ $app->post('/admin/regulation/upload-pdf', function (Request $request, Response 
 
     $file = $uploadedFiles['pdf'];
 
-    if ($file->getError() !== UPLOAD_ERR_OK) {
-        $response->getBody()->write(json_encode([
-            'error' => 'Error al subir el archivo.',
-        ], JSON_UNESCAPED_UNICODE));
-        return $response->withStatus(400)
-                        ->withHeader('Content-Type', 'application/json');
-    }
+    $err = $file->getError();
+if ($err !== UPLOAD_ERR_OK) {
+    $map = [
+        UPLOAD_ERR_INI_SIZE   => 'Excede upload_max_filesize (php.ini)',
+        UPLOAD_ERR_FORM_SIZE  => 'Excede MAX_FILE_SIZE del formulario',
+        UPLOAD_ERR_PARTIAL    => 'Subida parcial (se cortó)',
+        UPLOAD_ERR_NO_FILE    => 'No llegó archivo',
+        UPLOAD_ERR_NO_TMP_DIR => 'No hay carpeta temporal',
+        UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir en disco',
+        UPLOAD_ERR_EXTENSION  => 'Extensión bloqueó la subida',
+    ];
+
+    $response->getBody()->write(json_encode([
+        'error'  => 'Error al subir el archivo.',
+        'code'   => $err,
+        'detail' => $map[$err] ?? 'Desconocido',
+    ], JSON_UNESCAPED_UNICODE));
+
+    return $response->withStatus(400)
+                    ->withHeader('Content-Type', 'application/json');
+}
+
 
     // Validar extensión
     $clientFilename = $file->getClientFilename() ?? 'reglamento.pdf';
