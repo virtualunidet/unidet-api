@@ -31,7 +31,23 @@ class Auth
     {
         $secret  = self::env('JWT_SECRET', 'secret');
         $decoded = JWT::decode($token, new Key($secret, 'HS256'));
-        return (array)$decoded;
+
+        return (array) $decoded;
+    }
+
+    private static function parsePermissions($rawPermissions): array
+    {
+        if (is_array($rawPermissions)) {
+            return $rawPermissions;
+        }
+
+        if ($rawPermissions === null || $rawPermissions === '') {
+            return [];
+        }
+
+        $decoded = json_decode((string) $rawPermissions, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     public static function attemptLogin(string $email, string $password): ?array
@@ -40,30 +56,38 @@ class Auth
 
         $email = trim(mb_strtolower($email));
 
-        // Si tu tabla users tiene is_active, deja esa línea.
-        // Si NO la tiene, quítala.
         $stmt = $pdo->prepare(
-            "SELECT id, nombre, email, password_hash, role
+            "SELECT 
+                id, 
+                nombre, 
+                email, 
+                password_hash, 
+                role,
+                COALESCE(permissions, '[]'::jsonb) AS permissions
              FROM users
              WHERE email = :email
-             AND (is_active IS NULL OR is_active = 1)
+             AND COALESCE(is_active, 1) = 1
              LIMIT 1"
         );
 
         $stmt->execute([':email' => $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$user) return null;
+        if (!$user) {
+            return null;
+        }
 
-        if (!password_verify($password, (string)$user['password_hash'])) {
+        if (!password_verify($password, (string) $user['password_hash'])) {
             return null;
         }
 
         return [
-            'id'    => (int)$user['id'],
-            'name'  => (string)$user['nombre'],
-            'email' => (string)$user['email'],
-            'role'  => (string)$user['role'],
+            'id'          => (int) $user['id'],
+            'name'        => (string) $user['nombre'],
+            'nombre'      => (string) $user['nombre'],
+            'email'       => (string) $user['email'],
+            'role'        => (string) $user['role'],
+            'permissions' => self::parsePermissions($user['permissions'] ?? '[]'),
         ];
     }
 }
