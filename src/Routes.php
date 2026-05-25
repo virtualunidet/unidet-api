@@ -16,7 +16,7 @@ use UnidetApi\Service;
 use UnidetApi\Regulation;
 use UnidetApi\Contact;
 use UnidetApi\Faq;
-
+use UnidetApi\EmailService;
 
 /** @var App $app */
 
@@ -1479,7 +1479,6 @@ $app->delete('/admin/faq/{id}', function (Request $request, Response $response, 
     ], JSON_UNESCAPED_UNICODE));
     return $response->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['admin', 'superadmin']));
-
 /* =========================================================
  * Gestión de admins (solo superadmin)
  * =======================================================*/
@@ -1497,16 +1496,19 @@ $app->get('/admin/users', function (Request $request, Response $response) {
                 email_verified_at
             FROM users
             WHERE role IN ('admin', 'superadmin')
-            ORDER BY CASE WHEN role = 'superadmin' THEN 0 ELSE 1 END,
+            ORDER BY CASE WHEN id = 1 THEN 0
+                          WHEN role = 'superadmin' THEN 1
+                          ELSE 2
+                     END,
                      nombre ASC";
 
     $stmt  = $pdo->query($sql);
     $items = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
-    // Normalizamos tipos para el frontend
     foreach ($items as &$item) {
-        $item['is_active'] = (int)$item['is_active'];              // 0 ó 1 numérico
-        $item['verified']  = $item['email_verified_at'] !== null;  // bool
+        $item['is_active'] = (int)$item['is_active'];
+        $item['verified']  = $item['email_verified_at'] !== null;
+        $item['is_main_superadmin'] = ((int)$item['id'] === 1);
     }
     unset($item);
 
@@ -1517,20 +1519,35 @@ $app->get('/admin/users', function (Request $request, Response $response) {
     return $response->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['superadmin']));
 
+// POST /admin/users/request-code
+// Fase 1: genera un código de verificación local para crear admin/superadmin
 
-// POST /admin/users  -> crea un nuevo admin
-$app->post('/admin/users', function (Request $request, Response $response) {
+$app->post('/admin/user-verification/request-code', function (Request $request, Response $response) {
+    $authUser = $request->getAttribute('user');
+    $currentRole = (string)($authUser['role'] ?? '');
+    $currentId = (int)($authUser['sub'] ?? 0);
+
+    if ($currentRole !== 'superadmin') {
+        $response->getBody()->write(json_encode([
+            'error' => 'Solo un superadmin puede solicitar códigos de creación',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
     $data = (array)$request->getParsedBody();
 
     $name     = trim((string)($data['name'] ?? ''));
-    $email    = trim((string)($data['email'] ?? ''));
+    $email    = trim(mb_strtolower((string)($data['email'] ?? '')));
     $password = (string)($data['password'] ?? '');
-    $role     = $data['role'] ?? 'admin'; // solo admin o superadmin
+    $role     = (string)($data['role'] ?? 'admin');
 
     if ($name === '' || $email === '' || $password === '') {
         $response->getBody()->write(json_encode([
             'error' => 'name, email y password son obligatorios',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(400)
                         ->withHeader('Content-Type', 'application/json');
     }
@@ -1539,109 +1556,450 @@ $app->post('/admin/users', function (Request $request, Response $response) {
         $response->getBody()->write(json_encode([
             'error' => 'email no es válido',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(400)
                         ->withHeader('Content-Type', 'application/json');
     }
 
-    // Solo permitimos 'admin' o 'superadmin'
+    if (mb_strlen($password) < 8) {
+        $response->getBody()->write(json_encode([
+            'error' => 'La contraseña debe tener al menos 8 caracteres',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(400)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
     if (!in_array($role, ['admin', 'superadmin'], true)) {
         $role = 'admin';
     }
 
     $pdo = DB::getConnection();
 
-    // ¿ya existe ese correo?
-    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email");
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email LIMIT 1");
     $stmt->execute([':email' => $email]);
+
     if ($stmt->fetch()) {
         $response->getBody()->write(json_encode([
             'error' => 'Ya existe un usuario con ese email',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(409)
                         ->withHeader('Content-Type', 'application/json');
     }
 
+    // Invalidar códigos anteriores pendientes para el mismo correo
+    $stmt = $pdo->prepare("
+        UPDATE admin_user_verification_codes
+        SET used_at = CURRENT_TIMESTAMP
+        WHERE email = :email
+          AND used_at IS NULL
+    ");
+    $stmt->execute([':email' => $email]);
+
+    $code = (string)random_int(100000, 999999);
+
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+    $codeHash = password_hash($code, PASSWORD_DEFAULT);
 
-    $sql = "INSERT INTO users (nombre, email, password_hash, role, is_active, created_at)
-        VALUES (:nombre, :email, :password_hash, :role, 1, CURRENT_TIMESTAMP)";
+    $stmt = $pdo->prepare("
+        INSERT INTO admin_user_verification_codes
+            (name, email, password_hash, role, code_hash, expires_at, created_by)
+        VALUES
+            (:name, :email, :password_hash, :role, :code_hash, CURRENT_TIMESTAMP + INTERVAL '10 minutes', :created_by)
+        RETURNING id, expires_at
+    ");
 
-
-    $stmt = $pdo->prepare($sql);
     $stmt->execute([
-        ':nombre'        => $name,
+        ':name'          => $name,
         ':email'         => $email,
         ':password_hash' => $passwordHash,
         ':role'          => $role,
+        ':code_hash'     => $codeHash,
+        ':created_by'    => $currentId ?: null,
     ]);
 
-    $id = (int)$pdo->lastInsertId();
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-    $response->getBody()->write(json_encode([
-        'id'      => $id,
-        'message' => 'Admin creado correctamente',
-    ], JSON_UNESCAPED_UNICODE));
+    $mailSent = false;
+
+    try {
+        EmailService::sendAdminVerificationCode($email, $name, $code, $role);
+        $mailSent = EmailService::isEnabled();
+    } catch (\Throwable $e) {
+        $response->getBody()->write(json_encode([
+            'error' => 'No se pudo enviar el código por correo',
+            'detail' => $e->getMessage(),
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(500)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    $showDevCode = filter_var(
+        getenv('MAIL_DEV_SHOW_CODE') ?: ($_ENV['MAIL_DEV_SHOW_CODE'] ?? 'false'),
+        FILTER_VALIDATE_BOOLEAN
+    );
+
+    $payload = [
+        'message' => $mailSent
+            ? 'Código de verificación enviado al correo'
+            : 'Código de verificación generado correctamente',
+        'request_id' => (int)($row['id'] ?? 0),
+        'email' => $email,
+        'expires_at' => $row['expires_at'] ?? null,
+        'mail_sent' => $mailSent,
+    ];
+
+    if ($showDevCode) {
+        $payload['dev_verification_code'] = $code;
+    }
+
+    $response->getBody()->write(json_encode($payload, JSON_UNESCAPED_UNICODE));
 
     return $response->withStatus(201)
                     ->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['superadmin']));
 
+// POST /admin/users/confirm-code
+// Confirma el código y ahora sí crea el admin/superadmin
+$app->post('/admin/user-verification/confirm-code', function (Request $request, Response $response) {
+    $authUser = $request->getAttribute('user');
+    $currentRole = (string)($authUser['role'] ?? '');
 
-// PUT /admin/users/{id}  -> cambiar rol, activo y verificado
-$app->put('/admin/users/{id}', function (Request $request, Response $response, array $args) {
-    $id   = (int)$args['id'];
+    if ($currentRole !== 'superadmin') {
+        $response->getBody()->write(json_encode([
+            'error' => 'Solo un superadmin puede confirmar códigos de creación',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
     $data = (array)$request->getParsedBody();
+
+    $email = trim(mb_strtolower((string)($data['email'] ?? '')));
+    $code  = trim((string)($data['code'] ?? ''));
+
+    if ($email === '' || $code === '') {
+        $response->getBody()->write(json_encode([
+            'error' => 'email y code son obligatorios',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(400)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    if (!preg_match('/^\d{6}$/', $code)) {
+        $response->getBody()->write(json_encode([
+            'error' => 'El código debe tener 6 dígitos',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(400)
+                        ->withHeader('Content-Type', 'application/json');
+    }
 
     $pdo = DB::getConnection();
 
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email LIMIT 1");
+    $stmt->execute([':email' => $email]);
+
+    if ($stmt->fetch()) {
+        $response->getBody()->write(json_encode([
+            'error' => 'Ya existe un usuario con ese email',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(409)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    $stmt = $pdo->prepare("
+        SELECT id, name, email, password_hash, role, code_hash, expires_at
+        FROM admin_user_verification_codes
+        WHERE email = :email
+          AND used_at IS NULL
+          AND expires_at > CURRENT_TIMESTAMP
+        ORDER BY created_at DESC
+        LIMIT 1
+    ");
+
+    $stmt->execute([':email' => $email]);
+    $pending = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+    if (!$pending) {
+        $response->getBody()->write(json_encode([
+            'error' => 'No hay un código vigente para este correo o ya expiró',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(404)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    if (!password_verify($code, (string)$pending['code_hash'])) {
+        $response->getBody()->write(json_encode([
+            'error' => 'El código de verificación es incorrecto',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(400)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    $role = (string)$pending['role'];
+    if (!in_array($role, ['admin', 'superadmin'], true)) {
+        $role = 'admin';
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO users
+                (nombre, email, password_hash, role, is_active, email_verified_at, created_at)
+            VALUES
+                (:nombre, :email, :password_hash, :role, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
+        ");
+
+        $stmt->execute([
+            ':nombre'        => (string)$pending['name'],
+            ':email'         => (string)$pending['email'],
+            ':password_hash' => (string)$pending['password_hash'],
+            ':role'          => $role,
+        ]);
+
+        $newUserId = (int)$stmt->fetchColumn();
+
+        $stmt = $pdo->prepare("
+            UPDATE admin_user_verification_codes
+            SET used_at = CURRENT_TIMESTAMP
+            WHERE id = :id
+        ");
+
+        $stmt->execute([
+            ':id' => (int)$pending['id'],
+        ]);
+
+        $pdo->commit();
+
+        $response->getBody()->write(json_encode([
+            'id' => $newUserId,
+            'message' => $role === 'superadmin'
+                ? 'Superadmin verificado y creado correctamente'
+                : 'Admin verificado y creado correctamente',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(201)
+                        ->withHeader('Content-Type', 'application/json');
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+
+        $response->getBody()->write(json_encode([
+            'error' => 'No se pudo crear el usuario verificado',
+            'detail' => $e->getMessage(),
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(500)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+})->add(Middleware::jwtAuth(['superadmin']));
+
+// POST /admin/users
+// Ruta bloqueada: la creación directa queda deshabilitada.
+// Ahora todos los usuarios administrativos deben crearse mediante código de verificación.
+$app->post('/admin/users', function (Request $request, Response $response) {
+    $response->getBody()->write(json_encode([
+        'error' => 'La creación directa de administradores está deshabilitada. Usa el flujo de verificación por código.',
+        'required_flow' => [
+            'request_code' => '/admin/user-verification/request-code',
+            'confirm_code' => '/admin/user-verification/confirm-code',
+        ],
+    ], JSON_UNESCAPED_UNICODE));
+
+    return $response->withStatus(403)
+                    ->withHeader('Content-Type', 'application/json');
+})->add(Middleware::jwtAuth(['superadmin']));
+
+// PUT /admin/users/{id}  -> editar admin/superadmin
+$app->put('/admin/users/{id}', function (Request $request, Response $response, array $args) {
+    $targetId = (int)$args['id'];
+
+    $authUser = $request->getAttribute('user');
+    $currentId = (int)($authUser['sub'] ?? 0);
+    $currentRole = (string)($authUser['role'] ?? '');
+
+    if ($currentRole !== 'superadmin') {
+        $response->getBody()->write(json_encode([
+            'error' => 'Solo un superadmin puede modificar usuarios administrativos',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    // Regla principal:
+    // nadie puede modificar al superadmin principal, excepto él mismo en cambios permitidos.
+    if ($targetId === 1 && $currentId !== 1) {
+        $response->getBody()->write(json_encode([
+            'error' => 'No puedes modificar al superadmin principal',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    $data = (array)$request->getParsedBody();
+    $pdo = DB::getConnection();
+
+    $stmtUser = $pdo->prepare("
+        SELECT id, email, role, is_active
+        FROM users
+        WHERE id = :id
+          AND role IN ('admin', 'superadmin')
+        LIMIT 1
+    ");
+    $stmtUser->execute([':id' => $targetId]);
+    $targetUser = $stmtUser->fetch(\PDO::FETCH_ASSOC);
+
+    if (!$targetUser) {
+        $response->getBody()->write(json_encode([
+            'error' => 'Usuario no encontrado o sin rol administrativo',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(404)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
     $fields = [];
-    $params = [':id' => $id];
+    $params = [':id' => $targetId];
+
+    // ----- name -----
+    if (array_key_exists('name', $data)) {
+        $name = trim((string)$data['name']);
+
+        if ($name === '') {
+            $response->getBody()->write(json_encode([
+                'error' => 'El nombre no puede quedar vacío',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(400)
+                            ->withHeader('Content-Type', 'application/json');
+        }
+
+        $fields[] = 'nombre = :nombre';
+        $params[':nombre'] = $name;
+    }
+
+    // ----- email -----
+    if (array_key_exists('email', $data)) {
+        $email = trim(mb_strtolower((string)$data['email']));
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $response->getBody()->write(json_encode([
+                'error' => 'email no es válido',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(400)
+                            ->withHeader('Content-Type', 'application/json');
+        }
+
+        $stmtEmail = $pdo->prepare("
+            SELECT id 
+            FROM users 
+            WHERE email = :email 
+              AND id <> :id
+            LIMIT 1
+        ");
+        $stmtEmail->execute([
+            ':email' => $email,
+            ':id'    => $targetId,
+        ]);
+
+        if ($stmtEmail->fetch()) {
+            $response->getBody()->write(json_encode([
+                'error' => 'Ya existe otro usuario con ese email',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(409)
+                            ->withHeader('Content-Type', 'application/json');
+        }
+
+        $fields[] = 'email = :email';
+        $params[':email'] = $email;
+    }
 
     // ----- is_active -----
     if (array_key_exists('is_active', $data)) {
         $isActive = (int)!!$data['is_active'];
 
-        // No permitir desactivar al superadmin principal
-        if ($id === 1 && $isActive === 0) {
+        if ($targetId === 1 && $isActive === 0) {
             $response->getBody()->write(json_encode([
                 'error' => 'No puedes desactivar al superadmin principal',
             ], JSON_UNESCAPED_UNICODE));
+
             return $response->withStatus(400)
                             ->withHeader('Content-Type', 'application/json');
         }
 
-        $fields[]             = 'is_active = :is_active';
+        if ($targetId === $currentId && $isActive === 0) {
+            $response->getBody()->write(json_encode([
+                'error' => 'No puedes desactivar tu propia cuenta',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(400)
+                            ->withHeader('Content-Type', 'application/json');
+        }
+
+        $fields[] = 'is_active = :is_active';
         $params[':is_active'] = $isActive;
     }
 
     // ----- role -----
-    if (isset($data['role'])) {
+    if (array_key_exists('role', $data)) {
         $role = (string)$data['role'];
 
         if (!in_array($role, ['admin', 'superadmin'], true)) {
             $response->getBody()->write(json_encode([
                 'error' => 'role debe ser admin o superadmin',
             ], JSON_UNESCAPED_UNICODE));
+
             return $response->withStatus(400)
                             ->withHeader('Content-Type', 'application/json');
         }
 
-        // No permitir quitar el rol superadmin al usuario principal
-        if ($id === 1 && $role !== 'superadmin') {
+        if ($targetId === 1 && $role !== 'superadmin') {
             $response->getBody()->write(json_encode([
                 'error' => 'No puedes quitar el rol superadmin al usuario principal',
             ], JSON_UNESCAPED_UNICODE));
+
             return $response->withStatus(400)
                             ->withHeader('Content-Type', 'application/json');
         }
 
-        $fields[]        = 'role = :role';
+        if ($targetId === $currentId && $role !== 'superadmin') {
+            $response->getBody()->write(json_encode([
+                'error' => 'No puedes quitarte tu propio rol superadmin',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(400)
+                            ->withHeader('Content-Type', 'application/json');
+        }
+
+        $fields[] = 'role = :role';
         $params[':role'] = $role;
     }
 
-    // ----- verified (email_verified_at) -----
+    // ----- verified -----
     if (array_key_exists('verified', $data)) {
         $verified = (bool)$data['verified'];
+
+        if ($targetId === 1 && $currentId !== 1) {
+            $response->getBody()->write(json_encode([
+                'error' => 'No puedes cambiar la verificación del superadmin principal',
+            ], JSON_UNESCAPED_UNICODE));
+
+            return $response->withStatus(403)
+                            ->withHeader('Content-Type', 'application/json');
+        }
 
         if ($verified) {
             $fields[] = 'email_verified_at = CURRENT_TIMESTAMP';
@@ -1654,6 +2012,7 @@ $app->put('/admin/users/{id}', function (Request $request, Response $response, a
         $response->getBody()->write(json_encode([
             'message' => 'Nada que actualizar',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withHeader('Content-Type', 'application/json');
     }
 
@@ -1662,18 +2021,19 @@ $app->put('/admin/users/{id}', function (Request $request, Response $response, a
             WHERE id = :id";
 
     $stmt = $pdo->prepare($sql);
-    $ok   = $stmt->execute($params);
+    $ok = $stmt->execute($params);
 
     if (!$ok) {
         $response->getBody()->write(json_encode([
             'error' => 'No se pudo actualizar el usuario',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(500)
                         ->withHeader('Content-Type', 'application/json');
     }
 
     $response->getBody()->write(json_encode([
-        'message' => 'Usuario actualizado',
+        'message' => 'Usuario actualizado correctamente',
     ], JSON_UNESCAPED_UNICODE));
 
     return $response->withHeader('Content-Type', 'application/json');
@@ -1681,66 +2041,73 @@ $app->put('/admin/users/{id}', function (Request $request, Response $response, a
 
 
 // POST /admin/users/{id}/reset-password
-// Solo superadmin (incluyendo el admin principal) puede cambiar la contraseña de otro usuario
 $app->post('/admin/users/{id}/reset-password', function (Request $request, Response $response, array $args) {
-    $targetId = (int)$args['id']; // usuario al que le vamos a cambiar la contraseña
+    $targetId = (int)$args['id'];
 
-    // Usuario autenticado (quien está haciendo la petición)
-    $authUser    = $request->getAttribute('user');
-    $currentId   = (int)($authUser['sub']  ?? 0);
+    $authUser = $request->getAttribute('user');
+    $currentId = (int)($authUser['sub'] ?? 0);
     $currentRole = (string)($authUser['role'] ?? '');
 
-    // Por seguridad extra, aunque el middleware ya revisa el rol
     if ($currentRole !== 'superadmin') {
         $response->getBody()->write(json_encode([
             'error' => 'Solo un superadmin puede cambiar contraseñas de otros usuarios',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(403)
                         ->withHeader('Content-Type', 'application/json');
     }
 
-    $data        = (array)$request->getParsedBody();
+    if ($targetId === 1 && $currentId !== 1) {
+        $response->getBody()->write(json_encode([
+            'error' => 'Solo el superadmin principal puede cambiar su propia contraseña',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    $data = (array)$request->getParsedBody();
     $newPassword = (string)($data['new_password'] ?? '');
 
     if ($newPassword === '') {
         $response->getBody()->write(json_encode([
             'error' => 'new_password es obligatorio',
         ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(400)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
+    if (mb_strlen($newPassword) < 8) {
+        $response->getBody()->write(json_encode([
+            'error' => 'La contraseña debe tener al menos 8 caracteres',
+        ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(400)
                         ->withHeader('Content-Type', 'application/json');
     }
 
     $pdo = DB::getConnection();
 
-    // Verificar que el usuario exista y sea admin/superadmin
     $stmt = $pdo->prepare("
         SELECT id, email, role
         FROM users
         WHERE id = :id
           AND role IN ('admin', 'superadmin')
+        LIMIT 1
     ");
     $stmt->execute([':id' => $targetId]);
     $userRow = $stmt->fetch(\PDO::FETCH_ASSOC);
 
     if (!$userRow) {
         $response->getBody()->write(json_encode([
-            'error' => 'Usuario no encontrado o sin rol de admin/superadmin',
+            'error' => 'Usuario no encontrado o sin rol administrativo',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(404)
                         ->withHeader('Content-Type', 'application/json');
     }
 
-    // Regla especial: la contraseña del superadmin principal (id = 1)
-    // solo la puede cambiar ÉL MISMO.
-    if ($targetId === 1 && $currentId !== 1) {
-        $response->getBody()->write(json_encode([
-            'error' => 'Solo el superadmin principal puede cambiar su propia contraseña',
-        ], JSON_UNESCAPED_UNICODE));
-        return $response->withStatus(400)
-                        ->withHeader('Content-Type', 'application/json');
-    }
-
-    // Generar nuevo hash
     $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
 
     $stmt = $pdo->prepare("
@@ -1748,6 +2115,7 @@ $app->post('/admin/users/{id}/reset-password', function (Request $request, Respo
         SET password_hash = :hash
         WHERE id = :id
     ");
+
     $ok = $stmt->execute([
         ':hash' => $newHash,
         ':id'   => $targetId,
@@ -1757,74 +2125,85 @@ $app->post('/admin/users/{id}/reset-password', function (Request $request, Respo
         $response->getBody()->write(json_encode([
             'error' => 'No se pudo actualizar la contraseña',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(500)
                         ->withHeader('Content-Type', 'application/json');
     }
 
     $response->getBody()->write(json_encode([
-        'message'       => 'Contraseña actualizada correctamente',
-        'user_id'       => $targetId,
-        'user_email'    => $userRow['email'],
-        'temp_password' => $newPassword, // la contraseña que tú elegiste
+        'message'    => 'Contraseña actualizada correctamente',
+        'user_id'    => $targetId,
+        'user_email' => $userRow['email'],
     ], JSON_UNESCAPED_UNICODE));
 
     return $response->withHeader('Content-Type', 'application/json');
 })->add(Middleware::jwtAuth(['superadmin']));
 
 
-// DELETE /admin/users/{id}  -> eliminar admin (solo superadmin)
+// DELETE /admin/users/{id}
 $app->delete('/admin/users/{id}', function (Request $request, Response $response, array $args) {
     $targetId = (int)$args['id'];
 
-    $authUser  = $request->getAttribute('user');
+    $authUser = $request->getAttribute('user');
     $currentId = (int)($authUser['sub'] ?? 0);
+    $currentRole = (string)($authUser['role'] ?? '');
 
-    // No borrar al superadmin principal
+    if ($currentRole !== 'superadmin') {
+        $response->getBody()->write(json_encode([
+            'error' => 'Solo un superadmin puede eliminar usuarios administrativos',
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $response->withStatus(403)
+                        ->withHeader('Content-Type', 'application/json');
+    }
+
     if ($targetId === 1) {
         $response->getBody()->write(json_encode([
             'error' => 'No puedes eliminar al superadmin principal',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(400)
                         ->withHeader('Content-Type', 'application/json');
     }
 
-    // Opcional: no permitir que alguien se borre a sí mismo
     if ($targetId === $currentId) {
         $response->getBody()->write(json_encode([
             'error' => 'No puedes eliminar tu propia cuenta desde aquí',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(400)
                         ->withHeader('Content-Type', 'application/json');
     }
 
     $pdo = DB::getConnection();
 
-    // Verificar que sea admin/superadmin
     $stmt = $pdo->prepare("
         SELECT id, email, role
         FROM users
         WHERE id = :id
           AND role IN ('admin', 'superadmin')
+        LIMIT 1
     ");
     $stmt->execute([':id' => $targetId]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
     if (!$row) {
         $response->getBody()->write(json_encode([
-            'error' => 'Usuario no encontrado o sin rol de admin/superadmin',
+            'error' => 'Usuario no encontrado o sin rol administrativo',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(404)
                         ->withHeader('Content-Type', 'application/json');
     }
 
-    // Eliminar
     $stmtDel = $pdo->prepare("DELETE FROM users WHERE id = :id");
-    $ok      = $stmtDel->execute([':id' => $targetId]);
+    $ok = $stmtDel->execute([':id' => $targetId]);
 
     if (!$ok || $stmtDel->rowCount() === 0) {
         $response->getBody()->write(json_encode([
             'error' => 'No se pudo eliminar el usuario',
         ], JSON_UNESCAPED_UNICODE));
+
         return $response->withStatus(500)
                         ->withHeader('Content-Type', 'application/json');
     }
